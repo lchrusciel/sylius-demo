@@ -3,38 +3,44 @@
 set -e
 set -x
 
+# Create a sylius project. We can consider using -s dev flag to download a dev master Sylius version instead of the latest tagged one. 
 composer -n create-project sylius/sylius
 mv -f sylius/* .
 rm -R sylius
 find {app,web} -type d -print0 | xargs -0 chmod -R 777
 
-# Delete DB Schema
-app/console doctrine:schema:drop --env=${SYMFONY_ENV} --force
-
-# Install Sylius
-app/console sylius:install --env=${SYMFONY_ENV} --no-interaction
-
-find {app/{cache,logs,config},web} -type d -print0 | xargs -0 chmod -R 777
-#find {web/assets} -type f -print0 | xargs -0 chmod -R 0776
-
+# Setup project parameters
 sed -i "s/sylius.database.host: 127.0.0.1/sylius.database.host: ${DATABASE_SERVER}/g" app/config/parameters.yml
 sed -i "s/sylius.database.name: sylius/sylius.database.name: ${DATABASE_NAME}/g" app/config/parameters.yml
 sed -i "s/sylius.database.user: root/sylius.database.user: ${DATABASE_USER}/g" app/config/parameters.yml
 sed -i "s/sylius.database.password: null/sylius.database.password: ${DATABASE_PASSWORD}/g" app/config/parameters.yml
 
-TABLES=$(mysql -u ${DATABASE_USER} -p${DATABASE_PASSWORD} ${DATABASE_NAME} -e 'show tables' | awk '{ print $1}' | grep -v '^Tables' )
+# Delete a DB Schema to ensure if it is empty. With '--no-interaction' flag sylius will try to update a current schema, so it can cause an exception. 
+# If we don't care about demo database demo it will be just insurance that schema does not exist.
+app/console doctrine:database:drop --env=${SYMFONY_ENV} --force
 
-for t in $TABLES
-do
-	echo "Deleting $t table from ${DATABASE_NAME} database..."
-	mysql -u ${DATABASE_USER} -p${DATABASE_PASSWORD} ${DATABASE_NAME} -e "SET FOREIGN_KEY_CHECKS=0;drop table $t"
-done
+# Install Sylius
+app/console sylius:install --env=${SYMFONY_ENV} --no-interaction
+
+# In addition to these folders, we should also ensure, that: assets, bundles, css, js and media folders inside a web folder will have a proper access rights
+find {app/{cache,logs,config},web} -type d -print0 | xargs -0 chmod -R 777
+# find {web/assets} -type f -print0 | xargs -0 chmod -R 0776
+
+# Probably not needed, as a database is newly created with a schema and it is empty. To deletion. 
+# TABLES=$(mysql -u ${DATABASE_USER} -p${DATABASE_PASSWORD} ${DATABASE_NAME} -e 'show tables' | awk '{ print $1}' | grep -v '^Tables' )
+#
+# for t in $TABLES
+# do
+#	echo "Deleting $t table from ${DATABASE_NAME} database..."
+#	mysql -u ${DATABASE_USER} -p${DATABASE_PASSWORD} ${DATABASE_NAME} -e "SET FOREIGN_KEY_CHECKS=0;drop table $t"
+# done
 
 # Enable this for install database, set the right environment
-#app/console doctrine:database:create --env=${SYMFONY_ENV} --no-interaction
-app/console doctrine:schema:create --env=${SYMFONY_ENV} --no-interaction
+# app/console doctrine:database:create --env=${SYMFONY_ENV} --no-interaction <- not needed
+# app/console doctrine:schema:create --env=${SYMFONY_ENV} --no-interaction <- not needed
 app/console doctrine:fixtures:load --env=${SYMFONY_ENV} --no-interaction
 
-sed -i "s/parameters.yml/parameters_sylius.yml/g" app/config/config.yml
-mv app/config/parameters.yml app/config/parameters_sylius.yml
-sed -i "/^imports:/ a\    - { resource: parameters.yml }\\" app/config/config.yml
+# Cannot find a use case for this now. It should be deleted. It also cause a bug, because there could be more than one file that ends with 'parameters.yml' (Ex. @SyliusCoreBundle/Resources/config/app/parameters.yml).
+# sed -i "s/parameters.yml/parameters_sylius.yml/g" app/config/config.yml
+# mv app/config/parameters.yml app/config/parameters_sylius.yml
+# sed -i "/^imports:/ a\    - { resource: parameters.yml }\\" app/config/config.yml
